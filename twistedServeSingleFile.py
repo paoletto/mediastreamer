@@ -10,8 +10,9 @@ from zope.interface import implements
 from urllib import unquote
 
 
-
 from twisted.web.server import Site, Request, Session
+import twisted.web as tw
+import twisted.python
 from twisted.web.static import File
 from twisted.internet import reactor
 from twisted.web.http import HTTPFactory, HTTPChannel
@@ -182,19 +183,199 @@ class MyFile(File):
     # def _doMultipleRangeRequest(self, request, byteRanges):
     #     return File._doMultipleRangeRequest(self, request, byteRanges)
     #
-    # def _setContentHeaders(self, request, size=None ):
-    #     return File._setContentHeaders(self, request, size)
-    #
-    # def makeProducer(self, request, fileForReading):
-    #     return File.makeProducer(self, request, fileForReading)
-    #
+
+    def _setContentHeaders(self, request, size=None):
+        """
+        Set the Content-length and Content-type headers for this request.
+
+        This method is not appropriate for requests for multiple byte ranges;
+        L{_doMultipleRangeRequest} will set these headers in that case.
+
+        @param request: The L{Request} object.
+        @param size: The size of the response.  If not specified, default to
+            C{self.getFileSize()}.
+        """
+        if size is None:
+            size = self.getFileSize()
+        request.setHeader('content-length', str(size))
+        if self.type:
+            request.setHeader('content-type', self.type)
+        if self.encoding:
+            request.setHeader('content-encoding', self.encoding)
+
+
+    def makeProducer_custom(self, request, path):
+        """
+        Make a L{StaticProducer} that will produce the body of this response.
+
+        This method will also set the response code and Content-* headers.
+
+        @param request: The L{Request} object.
+        @param fileForReading: The file object containing the resource.
+        @return: A L{StaticProducer}.  Calling C{.start()} on this will begin
+            producing the response.
+        """
+        byteRange = request.getHeader('range')
+        if byteRange is None:
+            self._setContentHeaders(request)
+            request.setResponseCode(tw.http.OK)
+            return MyNoRangeStaticProducer(request, path)
+
+
+        parsedRanges = self._parseRangeHeader(byteRange)
+
+
+        if len(parsedRanges) == 1:
+            offset, size = self._doSingleRangeRequest(
+                request, parsedRanges[0])
+            self._setContentHeaders(request, size)
+            return MySingleRangeStaticProducer(
+                request, path, offset, size)
+        else:
+            raise
+
+    def makeProducer(self, request, fileForReading):
+        """
+        Make a L{StaticProducer} that will produce the body of this response.
+
+        This method will also set the response code and Content-* headers.
+
+        @param request: The L{Request} object.
+        @param fileForReading: The file object containing the resource.
+        @return: A L{StaticProducer}.  Calling C{.start()} on this will begin
+            producing the response.
+        """
+        byteRange = request.getHeader('range')
+        if byteRange is None:
+            self._setContentHeaders(request)
+            request.setResponseCode(tw.http.OK)
+            return tw.static.NoRangeStaticProducer(request, fileForReading)
+        try:
+            parsedRanges = self._parseRangeHeader(byteRange)
+        except ValueError:
+            twisted.python.log.msg("Ignoring malformed Range header %r" % (byteRange,))
+            self._setContentHeaders(request)
+            request.setResponseCode(tw.http.OK)
+            return tw.static.NoRangeStaticProducer(request, fileForReading)
+
+        if len(parsedRanges) == 1:
+            offset, size = self._doSingleRangeRequest(
+                request, parsedRanges[0])
+            print "Building SingleRangeStaticProducer. Offset ",offset, "Size", size
+            self._setContentHeaders(request, size)
+            return tw.static.SingleRangeStaticProducer(
+                request, fileForReading, offset, size)
+        else:
+            rangeInfo = self._doMultipleRangeRequest(request, parsedRanges)
+            return tw.static.MultipleRangeStaticProducer(
+                request, fileForReading, rangeInfo)
+
+    def render_GET_orig(self, request):
+        """
+        Begin sending the contents of this L{File} (or a subset of the
+        contents, based on the 'range' header) to the given request.
+        """
+        self.restat(False)
+
+        if self.type is None:
+            self.type, self.encoding = tw.static.getTypeAndEncoding(self.basename(),
+                                                          self.contentTypes,
+                                                          self.contentEncodings,
+                                                          self.defaultType)
+
+        if not self.exists():
+            return self.childNotFound.render(request)
+
+        if self.isdir():
+            return self.redirect(request)
+
+        request.setHeader('accept-ranges', 'bytes')
+
+        try:
+            fileForReading = self.openForReading()
+        except IOError, e:
+            import errno
+            if e[0] == errno.EACCES:
+                return resource.ForbiddenResource().render(request)
+            else:
+                raise
+
+        if request.setLastModified(self.getmtime()) is tw.http.CACHED:
+            return ''
+
+
+        producer = self.makeProducer(request, fileForReading)
+
+        if request.method == 'HEAD':
+            return ''
+
+        producer.start()
+        # and make sure the connection doesn't get closed
+        return tw.server.NOT_DONE_YET
+
+
+    def render_GET_new(self, request):
+        """
+        Begin sending the contents of this L{File} (or a subset of the
+        contents, based on the 'range' header) to the given request.
+        """
+
+        self.path = "somefile"
+        self.type = 'video/octet-stream'
+        self.encoding = None
+
+        # self.restat(False)
+        #
+        # if self.type is None:
+        #     self.type, self.encoding = tw.static.getTypeAndEncoding(self.basename(),
+        #                                                   self.contentTypes,
+        #                                                   self.contentEncodings,
+        #                                                   self.defaultType)
+        #
+        # if not self.exists():
+        #     return self.childNotFound.render(request)
+        #
+        # if self.isdir():
+        #     return self.redirect(request)
+
+        request.setHeader('accept-ranges', 'bytes')
+
+        # try:
+        #     fileForReading = self.openForReading()
+        # except IOError, e:
+        #     import errno
+        #     if e[0] == errno.EACCES:
+        #         return resource.ForbiddenResource().render(request)
+        #     else:
+        #         raise
+
+        if request.setLastModified(self.getmtime()) is tw.http.CACHED:
+            return ''
+
+
+        producer = self.makeProducer_custom(request, self.path)
+
+        if request.method == 'HEAD':
+            return ''
+
+        producer.start()
+        # and make sure the connection doesn't get closed
+        return tw.server.NOT_DONE_YET
+
+
+
+    def render_GET_real(self, request):
+        return self.render_GET_orig(request)
+        #return render_GET_new(self,request)
+
     def render_GET(self, request):
         # set up the transcoding to a named pipe
         # store the pid of the transcoding process in a map
         print "render_GET: channel is ", request.channel
         # create a producer, and pass the name of the pipe
 
-        return File.render_GET(self, request)
+        #return File.render_GET(self, request)
+        return self.render_GET_real(request)
     #
     # def redirect(self, request):
     #     return File.redirect(self, request)
@@ -234,6 +415,7 @@ class MyFile(File):
     # makeProducer = echoFunction(File.makeProducer)
     #
     #render_GET = echoFunction(File.render_GET)
+
     #
     # redirect = echoFunction(File.redirect)
     #
