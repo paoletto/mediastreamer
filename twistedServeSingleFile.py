@@ -6,7 +6,7 @@ import os
 from urllib import quote
 
 from zope.interface import implements
-
+from twisted.internet import abstract, interfaces
 from urllib import unquote
 
 
@@ -17,6 +17,307 @@ from twisted.web.static import File
 from twisted.internet import reactor
 from twisted.web.http import HTTPFactory, HTTPChannel
 from twisted.web import util as webutil, resource as webresource
+
+
+
+#sDataBasedir = "D:/temp/streaming/TESTS/"
+sDataBasedir = "BBBEXAMPLE/"
+#sMovieName = "myH264testMovie"
+sMovieName = "BBB_ffmpeg_360p_crf30"
+sMoviePath = sDataBasedir + sMovieName + ".mkv"
+sHeaderPath = sDataBasedir + sMovieName + "_headerOnly.mkv"
+sDataPath   = sDataBasedir + sMovieName + "_dataOnly.mkv"
+sCuesPath   = sDataBasedir + sMovieName + "_cuesOnly.mkv"
+#sSeekheadPath   = sDataBasedir + sMovieName + "_seekheadOnly.mkv"
+
+
+iDataOffset = 1389
+iCuesOffset = 23101218
+iOutputSize = 4000000000
+
+class VideoHeader():
+    bEOF    = False
+    sFilename = sHeaderPath
+    filFile = None  #this is temporary
+    def __init__(self, request):
+        self.request = request
+
+    def isEOF(self):
+        return self.bEOF
+
+    def cleanup(self):
+        if self.filFile:
+            self.filFile.close()
+            self.filFile = None
+
+    def getData(self):
+        if (not self.filFile):
+            #init
+            self.filFile = open(self.sFilename, 'rb')
+
+        data = self.filFile.read(abstract.FileDescriptor.bufferSize)
+        if (data):
+            return data
+
+        bEOF = True
+        return None
+
+
+class VideoData():
+    bEOF    = False
+    sFilename = sDataPath
+    filFile = None  #this is temporary
+    def __init__(self, request):
+        self.request = request
+
+    def cleanup(self):
+        if self.filFile:
+            self.filFile.close()
+            self.filFile = None
+
+    def isEOF(self):
+        return self.bEOF
+
+    def getData(self):
+        if (not self.filFile):
+            #init
+            self.filFile = open(self.sFilename, 'rb')
+
+        data = self.filFile.read(abstract.FileDescriptor.bufferSize)
+        dataSz = len(data)
+        if (data):
+            return data
+
+        bEOF = True
+        return None
+
+
+class VideoCues():
+    bEOF    = False
+    sFilename = sCuesPath
+    filFile = None  #this is temporary
+    def __init__(self, request):
+        self.request = request
+
+    def isEOF(self):
+        return self.bEOF
+
+    def cleanup(self):
+        if self.filFile:
+            self.filFile.close()
+            self.filFile = None
+
+
+    def getData(self):
+        if (not self.filFile):
+            #init
+            self.filFile = open(self.sFilename, 'rb')
+
+        data = self.filFile.read(abstract.FileDescriptor.bufferSize)
+        if (data):
+            return data
+
+        bEOF = True
+        return None
+
+# class VideoSeekhead():
+#     bEOF    = False
+#     sFilename = sSeekheadPath
+#     filFile = None  #this is temporary
+#     def __init__(self, request):
+#         self.request = request
+#
+#     def isEOF(self):
+#         return self.bEOF
+#
+#     def cleanup(self):
+#         if self.filFile:
+#             self.filFile.close()
+#             self.filFile = None
+#
+#
+#     def getData(self):
+#         if (not self.filFile):
+#             #init
+#             self.filFile = open(self.sFilename, 'rb')
+#
+#         data = self.filFile.read(abstract.FileDescriptor.bufferSize)
+#         if (data):
+#             return data
+#
+#         bEOF = True
+#         return None
+
+class MyStreamingProducer(object):
+    """
+    Superclass for classes that implement the business of producing.
+
+    @ivar request: The L{IRequest} to write the contents of the file to.
+    @ivar fileObject: The file the contents of which to write to the request.
+    """
+
+    implements(interfaces.IPullProducer)
+
+    bufferSize = abstract.FileDescriptor.bufferSize
+
+
+    def __init__(self, request): #, fileObject):
+        """
+        Initialize the instance.
+        """
+        self.request = request
+        #self.fileObject = fileObject
+
+
+    def start(self):
+        raise NotImplementedError(self.start)
+
+
+    def resumeProducing(self):
+        raise NotImplementedError(self.resumeProducing)
+
+
+    def stopProducing(self):
+        """
+        Stop producing data.
+
+        L{IPullProducer.stopProducing} is called when our consumer has died,
+        and subclasses also call this method when they are done producing
+        data.
+        """
+        #self.fileObject.close()
+        self.request = None
+
+
+class MyNoRangeStreamingProducer(MyStreamingProducer):
+    """
+    A L{StaticProducer} that writes the entire file to the request.
+    """
+
+    videoheader = None
+    videodata   = None
+    videocues   = None
+    videoseekhead = None
+
+    def start(self):
+        self.request.registerProducer(self, False)
+
+
+    def resumeProducing(self):
+        if not self.request:
+            return
+
+        if (not self.videoheader):
+            #create videoheader
+            self.videoheader = VideoHeader(self.request)
+
+        #use videoheader
+
+        if (not self.videoheader.isEOF()):
+            data = self.videoheader.getData()
+            if data:
+                # this .write will spin the reactor, calling .doWrite and then
+                # .resumeProducing again, so be prepared for a re-entrant call
+                self.request.write(data)
+                return
+
+
+        if (not self.videodata):
+            self.videodata = VideoData(self.request)
+
+        #use videodata
+
+        if (not self.videodata.isEOF()):
+            data = self.videodata.getData()
+            if data:
+                # this .write will spin the reactor, calling .doWrite and then
+                # .resumeProducing again, so be prepared for a re-entrant call
+                self.request.write(data)
+                return
+
+        if (not self.videocues):
+            self.videocues = VideoCues(self.request)
+
+        #use videocues
+        if (not self.videocues.isEOF()):
+            data = self.videocues.getData()
+            if data:
+                # this .write will spin the reactor, calling .doWrite and then
+                # .resumeProducing again, so be prepared for a re-entrant call
+                self.request.write(data)
+                return
+
+
+        self.request.unregisterProducer()
+        self.request.finish()
+        self.stopProducing()
+
+
+
+    def stopProducing(self):
+        if (self.videoheader):
+            #stop it
+            self.videoheader.cleanup()
+            self.videoheader = None
+
+
+        if (self.videodata):
+            #stop it
+            self.videodata.cleanup()
+            self.videodata = None
+
+
+        if (self.videocues):
+            #stop it
+            self.videocues.cleanup()
+            self.videocues = None
+
+        super(MyNoRangeStreamingProducer, self).stopProducing()
+
+
+
+class MySingleRangeStreamingProducer(MyStreamingProducer):
+    """
+    A L{StaticProducer} that writes a single chunk of a file to the request.
+    """
+
+    def __init__(self, request, fileObject, offset, size):
+        """
+        Initialize the instance.
+
+        @param request: See L{StaticProducer}.
+        @param fileObject: See L{StaticProducer}.
+        @param offset: The offset into the file of the chunk to be written.
+        @param size: The size of the chunk to write.
+        """
+        tw.static.StaticProducer.__init__(self, request, fileObject)
+        self.offset = offset
+        self.size = size
+
+
+    def start(self):
+        self.fileObject.seek(self.offset)
+        self.bytesWritten = 0
+        self.request.registerProducer(self, 0)
+
+
+    def resumeProducing(self):
+        if not self.request:
+            return
+        data = self.fileObject.read(
+            min(self.bufferSize, self.size - self.bytesWritten))
+        if data:
+            self.bytesWritten += len(data)
+            # this .write will spin the reactor, calling .doWrite and then
+            # .resumeProducing again, so be prepared for a re-entrant call
+            self.request.write(data)
+        if self.request and self.bytesWritten == self.size:
+            self.request.unregisterProducer()
+            self.request.finish()
+            self.stopProducing()
+
+    def stopProducing(self):
+         super(MySingleRangeStreamingProducer, self).stopProducing()
 
 
 class MyHTTPChannel(HTTPChannel):
@@ -171,15 +472,50 @@ class MyFile(File):
     # def _parseRangeHeader(self, range):
     #     return File._parseRangeHeader(self, range)
     #
-    # def _rangeToOffsetAndSize(self, start, end):
+    # def _rangeToOffsetAndS    ize(self, start, end):
     #     return File._rangeToOffsetAndSize(self, start, end)
     #
     # def _contentRange(self, offset, size):
     #     return File._contentRange(self, offset, size)
     #
-    # def _doSingleRangeRequest(self, request, (start, end)):
-    #     return File._doSingleRangeRequest(self, request, (start, end))
-    #
+    def _doSingleRangeRequest(self, request, (start, end)):
+        """
+        Set up the response for Range headers that specify a single range.
+
+        This method checks if the request is satisfiable and sets the response
+        code and Content-Range header appropriately.  The return value
+        indicates which part of the resource to return.
+
+        @param request: The Request object.
+        @param start: The start of the byte range as specified by the header.
+        @param end: The end of the byte range as specified by the header.  At
+            most one of C{start} and C{end} may be C{None}.
+        @return: A 2-tuple of the offset and size of the range to return.
+            offset == size == 0 indicates that the request is not satisfiable.
+        """
+
+        # Cases
+
+        # 1) range request to a cluster: we care about the offset, we don't care about the size. we can set something big on the size, it will probably work.
+
+        # 2) range request to the cues ( - up to 2048 bytes) : we return the proper offset, and the cues size
+
+        # 3 range request past the cues: request not satisfiable.
+
+
+        offset, size  = self._rangeToOffsetAndSize(start, end)
+        print "_doSingleRangeRequest",start,end
+        if offset == size == 0:
+            # This range doesn't overlap with any of this resource, so the
+            # request is unsatisfiable.
+            request.setResponseCode(tw.http.REQUESTED_RANGE_NOT_SATISFIABLE)
+            request.setHeader(
+                'content-range', 'bytes */%d' % (self.getFileSize(),))
+        else:
+            request.setResponseCode(tw.http.PARTIAL_CONTENT)
+            request.setHeader(
+                'content-range', self._contentRange(offset, size))
+        return offset, size
     # def _doMultipleRangeRequest(self, request, byteRanges):
     #     return File._doMultipleRangeRequest(self, request, byteRanges)
     #
@@ -196,7 +532,7 @@ class MyFile(File):
             C{self.getFileSize()}.
         """
         if size is None:
-            size = self.getFileSize()
+            size = iOutputSize  #23103107 #363664837  # 4000000000 #self.getFileSize()
         request.setHeader('content-length', str(size))
         if self.type:
             request.setHeader('content-type', self.type)
@@ -204,7 +540,8 @@ class MyFile(File):
             request.setHeader('content-encoding', self.encoding)
 
 
-    def makeProducer_custom(self, request, path):
+
+    def makeProducer_custom(self, request):
         """
         Make a L{StaticProducer} that will produce the body of this response.
 
@@ -219,7 +556,7 @@ class MyFile(File):
         if byteRange is None:
             self._setContentHeaders(request)
             request.setResponseCode(tw.http.OK)
-            return MyNoRangeStaticProducer(request, path)
+            return MyNoRangeStreamingProducer(request)
 
 
         parsedRanges = self._parseRangeHeader(byteRange)
@@ -229,8 +566,8 @@ class MyFile(File):
             offset, size = self._doSingleRangeRequest(
                 request, parsedRanges[0])
             self._setContentHeaders(request, size)
-            return MySingleRangeStaticProducer(
-                request, path, offset, size)
+            return MySingleRangeStreamingProducer(
+                request, offset, size)
         else:
             raise
 
@@ -283,6 +620,8 @@ class MyFile(File):
                                                           self.contentEncodings,
                                                           self.defaultType)
 
+        print "render_GET_orig: type",self.type,"encoding",self.encoding
+
         if not self.exists():
             return self.childNotFound.render(request)
 
@@ -301,6 +640,7 @@ class MyFile(File):
                 raise
 
         if request.setLastModified(self.getmtime()) is tw.http.CACHED:
+            print "tw.http.CACHED"
             return ''
 
 
@@ -320,7 +660,7 @@ class MyFile(File):
         contents, based on the 'range' header) to the given request.
         """
 
-        self.path = "somefile"
+        self.path = "myH264testMovie.mkv"
         self.type = 'video/octet-stream'
         self.encoding = None
 
@@ -349,11 +689,11 @@ class MyFile(File):
         #     else:
         #         raise
 
-        if request.setLastModified(self.getmtime()) is tw.http.CACHED:
-            return ''
+        # if request.setLastModified(self.getmtime()) is tw.http.CACHED:
+        #     return ''
 
 
-        producer = self.makeProducer_custom(request, self.path)
+        producer = self.makeProducer_custom(request) #, self.path)
 
         if request.method == 'HEAD':
             return ''
@@ -366,7 +706,7 @@ class MyFile(File):
 
     def render_GET_real(self, request):
         return self.render_GET_orig(request)
-        #return render_GET_new(self,request)
+        #return self.render_GET_new(request)
 
     def render_GET(self, request):
         # set up the transcoding to a named pipe
@@ -427,7 +767,8 @@ class MyFile(File):
 
 
 
-resource = MyFile('D:/temp/streaming', defaultType='video/octet-stream')
+#resource = MyFile('D:/temp/streaming', defaultType='video/octet-stream')
+resource = MyFile('BBBEXAMPLE', defaultType='video/octet-stream')
 factory = MySite(resource)
 reactor.listenTCP(8000, factory)
 reactor.run()
