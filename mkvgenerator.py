@@ -500,6 +500,7 @@ def fillEBMLHeader(mkvHeader_EBMLHeader, fTotalLengthMs, fFPS, vecResolution, iC
         fillEBMLSegmentTracks(mkvHeader_SegmentTracks, fFPS, vecResolution)
         fillEBMLSeekHead(mkvHeader_SeekHead,mkvHeader_SegmentInfo, iCuesSize)
 
+        mkvHeader_EBMLSegment.write(ebml_element(EEID["Segment"], "", iDataSize))
         mkvHeader_EBMLSegment.write(mkvHeader_SeekHead.getvalue())
         mkvHeader_EBMLSegment.write(mkvHeader_SegmentInfo.getvalue())
         mkvHeader_EBMLSegment.write(mkvHeader_SegmentTracks.getvalue())
