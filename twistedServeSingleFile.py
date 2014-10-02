@@ -33,7 +33,20 @@ sCuesPath   = sDataBasedir + sMovieName + "_cuesOnly.mkv"
 
 iDataOffset = 1389
 iCuesOffset = 23101218
+iCuesSize   = 1889
 iOutputSize = 4000000000
+iCuesTolerance = 2048
+
+
+def isHeaderRequest(start):
+    return int(start) is 0
+def isDataRequest(start):
+    return (not isHeaderRequest(start)) and (not isCuesRequest(start))
+def isCuesRequest(start):
+    return (int(start) is iCuesOffset)\
+    or\
+           ( (int(start) < iCuesOffset) and ( (int(start) + iCuesTolerance ) > iCuesOffset)   )
+
 
 class VideoHeader():
     bEOF    = False
@@ -62,7 +75,6 @@ class VideoHeader():
         bEOF = True
         return None
 
-
 class VideoData():
     bEOF    = False
     sFilename = sDataPath
@@ -78,6 +90,12 @@ class VideoData():
     def isEOF(self):
         return self.bEOF
 
+    def seek(self, offset):
+        if (not self.filFile):
+            #init
+            self.filFile = open(self.sFilename, 'rb')
+        self.filFile.seek(offset)
+
     def getData(self):
         if (not self.filFile):
             #init
@@ -90,7 +108,6 @@ class VideoData():
 
         bEOF = True
         return None
-
 
 class VideoCues():
     bEOF    = False
@@ -119,34 +136,6 @@ class VideoCues():
 
         bEOF = True
         return None
-
-# class VideoSeekhead():
-#     bEOF    = False
-#     sFilename = sSeekheadPath
-#     filFile = None  #this is temporary
-#     def __init__(self, request):
-#         self.request = request
-#
-#     def isEOF(self):
-#         return self.bEOF
-#
-#     def cleanup(self):
-#         if self.filFile:
-#             self.filFile.close()
-#             self.filFile = None
-#
-#
-#     def getData(self):
-#         if (not self.filFile):
-#             #init
-#             self.filFile = open(self.sFilename, 'rb')
-#
-#         data = self.filFile.read(abstract.FileDescriptor.bufferSize)
-#         if (data):
-#             return data
-#
-#         bEOF = True
-#         return None
 
 class MyStreamingProducer(object):
     """
@@ -187,7 +176,6 @@ class MyStreamingProducer(object):
         """
         #self.fileObject.close()
         self.request = None
-
 
 class MyNoRangeStreamingProducer(MyStreamingProducer):
     """
@@ -274,14 +262,12 @@ class MyNoRangeStreamingProducer(MyStreamingProducer):
 
         super(MyNoRangeStreamingProducer, self).stopProducing()
 
-
-
 class MySingleRangeStreamingProducer(MyStreamingProducer):
     """
     A L{StaticProducer} that writes a single chunk of a file to the request.
     """
 
-    def __init__(self, request, fileObject, offset, size):
+    def __init__(self, request, offset, size):
         """
         Initialize the instance.
 
@@ -290,13 +276,21 @@ class MySingleRangeStreamingProducer(MyStreamingProducer):
         @param offset: The offset into the file of the chunk to be written.
         @param size: The size of the chunk to write.
         """
-        tw.static.StaticProducer.__init__(self, request, fileObject)
+        #MyStreamingProducer.__init__(self, request)
+        super(MySingleRangeStreamingProducer, self).__init__(request)
         self.offset = offset
         self.size = size
-
+        self.dataProvider = None
 
     def start(self):
-        self.fileObject.seek(self.offset)
+        if (isCuesRequest(self.offset)):
+            self.dataProvider = VideoCues(self.request)
+        else:
+            self.dataProvider = VideoData(self.request)
+            iOffset = self.offset - iDataOffset
+            if (iOffset):
+                self.dataProvider.seek(iOffset)
+
         self.bytesWritten = 0
         self.request.registerProducer(self, 0)
 
@@ -304,21 +298,22 @@ class MySingleRangeStreamingProducer(MyStreamingProducer):
     def resumeProducing(self):
         if not self.request:
             return
-        data = self.fileObject.read(
-            min(self.bufferSize, self.size - self.bytesWritten))
-        if data:
-            self.bytesWritten += len(data)
-            # this .write will spin the reactor, calling .doWrite and then
-            # .resumeProducing again, so be prepared for a re-entrant call
-            self.request.write(data)
-        if self.request and self.bytesWritten == self.size:
-            self.request.unregisterProducer()
-            self.request.finish()
-            self.stopProducing()
+        if not self.dataProvider.isEOF():
+            data = self.dataProvider.getData()
+            if data:
+                self.request.write(data)
+                return
+
+        self.request.unregisterProducer()
+        self.request.finish()
+        self.stopProducing()
 
     def stopProducing(self):
-         super(MySingleRangeStreamingProducer, self).stopProducing()
-
+        if (self.dataProvider):
+            #stop it
+            self.dataProvider.cleanup()
+            self.dataProvider = None
+        super(MySingleRangeStreamingProducer, self).stopProducing()
 
 class MyHTTPChannel(HTTPChannel):
     def __init__(self):
@@ -333,7 +328,6 @@ class MyHTTPChannel(HTTPChannel):
     def connectionMade(self):
         print "connectionMade in MyHTTPChannel"
         HTTPChannel.connectionMade(self)
-
 
 class MyHTTPFactory(HTTPFactory):
     protocol = MyHTTPChannel
@@ -440,9 +434,9 @@ class MySite(MyHTTPFactory):
         return webresource.getChildForRequest(self.resource, request)
 
 class MyFile(File):
+
     def __init__(self, path, defaultType="text/html", ignoredExts=(), registry=None, allowExt=0):
         File.__init__(self,path, defaultType,ignoredExts,registry,allowExt)
-
 
     def echoFunction(fn):
         "Returns a traced version of the input function."
@@ -454,30 +448,68 @@ class MyFile(File):
             return fn(*v, **k)
         return wrapped
 
-    # def ignoreExt(self, ext):
-    #     return File.ignoredExts(self, ext)
-    #
-    # def directoryListing(self):
-    #     return File.directoryListing()
-    #
-    # def getChild(self, path, request):
-    #     return File.getChild(self,path,request)
-    #
-    # def openForReading(self):
-    #     return File.openForReading(self)
-    #
-    # def getFileSize(self):
-    #     return File.getFileSize(self)
-    #
-    # def _parseRangeHeader(self, range):
-    #     return File._parseRangeHeader(self, range)
-    #
-    # def _rangeToOffsetAndS    ize(self, start, end):
-    #     return File._rangeToOffsetAndSize(self, start, end)
-    #
-    # def _contentRange(self, offset, size):
-    #     return File._contentRange(self, offset, size)
-    #
+    def getFileSize(self):
+        """Return file size."""
+        return iOutputSize # self.getsize()
+
+    def _contentRange(self, offset, size):
+        """
+        Return a string suitable for the value of a Content-Range header for a
+        range with the given offset and size.
+
+        The offset and size are not sanity checked in any way.
+
+        @param offset: How far into this resource the range begins.
+        @param size: How long the range is.
+        @return: The value as appropriate for the value of a Content-Range
+            header.
+        """
+        return 'bytes %d-%d/%d' % (
+            offset, offset + size - 1, self.getFileSize())
+
+    def _rangeToOffsetAndSize(self, start, end):
+        """
+            Convert a start and end from a Range header to an offset and size.
+
+            This method checks that the resulting range overlaps with the resource
+            being served (and so has the value of C{getFileSize()} as an indirect
+            input).
+
+            Either but not both of start or end can be C{None}:
+
+             - Omitted start means that the end value is actually a start value
+               relative to the end of the resource.
+
+             - Omitted end means the end of the resource should be the end of
+               the range.
+
+            End is interpreted as inclusive, as per RFC 2616.
+
+            If this range doesn't overlap with any of this resource, C{(0, 0)} is
+            returned, which is not otherwise a value return value.
+
+            @param start: The start value from the header, or C{None} if one was
+                not present.
+            @param end: The end value from the header, or C{None} if one was not
+                present.
+            @return: C{(offset, size)} where offset is how far into this resource
+                this resource the range begins and size is how long the range is,
+                or C{(0, 0)} if the range does not overlap this resource.
+            """
+        size = self.getFileSize()
+        if start is None:
+            start = size - end
+            end = size
+        elif end is None:
+            end = size
+        elif end < size:
+            end += 1
+        elif end > size:
+            end = size
+        if start >= size:
+            start = end = 0
+        return start, (end - start)
+
     def _doSingleRangeRequest(self, request, (start, end)):
         """
         Set up the response for Range headers that specify a single range.
@@ -494,31 +526,42 @@ class MyFile(File):
             offset == size == 0 indicates that the request is not satisfiable.
         """
 
+
+
+
+        print "_doSingleRangeRequest",start,end
         # Cases
 
+
+
         # 1) range request to a cluster: we care about the offset, we don't care about the size. we can set something big on the size, it will probably work.
+        if (isDataRequest(start)):
 
-        # 2) range request to the cues ( - up to 2048 bytes) : we return the proper offset, and the cues size
-
-        # 3 range request past the cues: request not satisfiable.
-
-
-        offset, size  = self._rangeToOffsetAndSize(start, end)
-        print "_doSingleRangeRequest",start,end
-        if offset == size == 0:
-            # This range doesn't overlap with any of this resource, so the
-            # request is unsatisfiable.
-            request.setResponseCode(tw.http.REQUESTED_RANGE_NOT_SATISFIABLE)
-            request.setHeader(
-                'content-range', 'bytes */%d' % (self.getFileSize(),))
-        else:
+            offset, size  = self._rangeToOffsetAndSize(start, end)
+            print "\t received a Data Request,",start, end, offset,size
             request.setResponseCode(tw.http.PARTIAL_CONTENT)
             request.setHeader(
                 'content-range', self._contentRange(offset, size))
+        # 2) range request to the cues ( - up to 2048 bytes) : we return the proper offset, and the cues size
+        elif (isCuesRequest(start)):
+            offset, size  = self._rangeToOffsetAndSize(start, end)
+            offset = iCuesOffset
+            size = iCuesSize
+            print "\t received a Cues Request,",offset
+            request.setResponseCode(tw.http.PARTIAL_CONTENT)
+            request.setHeader(
+                'content-range', self._contentRange(offset, size))
+        # 3 range request past the cues: request not satisfiable.
+        else: #must be past cues
+            # This range doesn't overlap with any of this resource, so the
+            # request is unsatisfiable.
+            offset=size=0
+            print "\t received an Unsatisfiable Request,",offset
+            request.setResponseCode(tw.http.REQUESTED_RANGE_NOT_SATISFIABLE)
+            request.setHeader(
+                'content-range', 'bytes */%d' % (self.getFileSize(),))
+
         return offset, size
-    # def _doMultipleRangeRequest(self, request, byteRanges):
-    #     return File._doMultipleRangeRequest(self, request, byteRanges)
-    #
 
     def _setContentHeaders(self, request, size=None):
         """
@@ -538,8 +581,6 @@ class MyFile(File):
             request.setHeader('content-type', self.type)
         if self.encoding:
             request.setHeader('content-encoding', self.encoding)
-
-
 
     def makeProducer_custom(self, request):
         """
@@ -563,11 +604,18 @@ class MyFile(File):
 
 
         if len(parsedRanges) == 1:
-            offset, size = self._doSingleRangeRequest(
-                request, parsedRanges[0])
-            self._setContentHeaders(request, size)
-            return MySingleRangeStreamingProducer(
-                request, offset, size)
+            if int(parsedRanges[0][0]) is 0:
+                self._setContentHeaders(request)
+                request.setResponseCode(tw.http.PARTIAL_CONTENT)
+                request.setHeader(
+                    'content-range', self._contentRange(0, iOutputSize))
+                return MyNoRangeStreamingProducer(request)
+            else:
+                offset, size = self._doSingleRangeRequest(
+                    request, parsedRanges[0])
+                self._setContentHeaders(request, size)
+                return MySingleRangeStreamingProducer(
+                    request, offset, size)
         else:
             raise
 
@@ -705,8 +753,8 @@ class MyFile(File):
 
 
     def render_GET_real(self, request):
-        return self.render_GET_orig(request)
-        #return self.render_GET_new(request)
+        #return self.render_GET_orig(request)
+        return self.render_GET_new(request)
 
     def render_GET(self, request):
         # set up the transcoding to a named pipe
