@@ -17,7 +17,7 @@ from twisted.web.static import File
 from twisted.internet import reactor
 from twisted.web.http import HTTPFactory, HTTPChannel
 from twisted.web import util as webutil, resource as webresource
-
+import mkvgenerator
 
 
 #sDataBasedir = "D:/temp/streaming/TESTS/"
@@ -34,21 +34,25 @@ sCuesPath   = sDataBasedir + sMovieName + "_cuesOnly.mkv"
 iDataOffset = 1389
 iCuesOffset = 23101218
 iCuesSize   = 1889
-iOutputSize = 4000000000
 iCuesTolerance = 2048
 
+iSeekHeadOffset = 49
+iOutputSize = 4000000000
+iCuesOffset = iOutputSize - iCuesSize + iSeekHeadOffset
+print "cuesOffset: ", iCuesOffset
+mkvHeader = mkvgenerator.getMKVHeader()
 
 def isHeaderRequest(start):
     return int(start) is 0
 def isDataRequest(start):
-    return (not isHeaderRequest(start)) and (not isCuesRequest(start))
+    return (not isHeaderRequest(start)) and (not isCuesRequest(start) and (start < iCuesOffset)  )
 def isCuesRequest(start):
     return (int(start) is iCuesOffset)\
     or\
            ( (int(start) < iCuesOffset) and ( (int(start) + iCuesTolerance ) > iCuesOffset)   )
 
 
-class VideoHeader():
+class VideoHeader_file():
     bEOF    = False
     sFilename = sHeaderPath
     filFile = None  #this is temporary
@@ -72,8 +76,29 @@ class VideoHeader():
         if (data):
             return data
 
-        bEOF = True
+        self.bEOF = True
         return None
+
+class VideoHeader_bytesio():
+    bEOF    = False
+
+    def __init__(self, request):
+        self.request = request
+
+    def isEOF(self):
+        return self.bEOF
+
+    def cleanup(self):
+        pass
+
+    def getData(self):
+        if not self.bEOF:
+            self.bEOF = True
+            return mkvHeader.getvalue()
+
+        return None
+
+VideoHeader = VideoHeader_bytesio
 
 class VideoData():
     bEOF    = False

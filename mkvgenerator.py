@@ -304,8 +304,6 @@ mkvHeader_EBMLHeader = BytesIO()
 
 mkvCues               = BytesIO()
 
-
-
 EEName = {}  # EBML Element Name
 fillElements(EEName)
 EEID  = {}                  # EBML Element ID
@@ -390,8 +388,6 @@ def random_uid():
     def rint():
         return int(random.random()*(0x100**4))
     return ben(rint()) + ben(rint()) + ben(rint()) + ben(rint())
-
-
 
 def fillEBMLHeader(mkvHeader_EBMLHeader, fTotalLengthMs, fFPS, vecResolution, iCuesSize):
     mkvHeader_EBMLHead = BytesIO()
@@ -514,12 +510,16 @@ def fillEBMLHeader(mkvHeader_EBMLHeader, fTotalLengthMs, fFPS, vecResolution, iC
 def fillEBMLCues(mkvCues):
     pass
 
-
+def getMKVHeader(): #fTotalLengthMs, fFPS, vecResolution, iCuesSize):
+    _header = BytesIO()
+    fillEBMLHeader(_header,634621.0,30.0,(640,360),1889)
+    return _header
 
 if __name__ == '__main__':
     fillEBMLHeader(mkvHeader_EBMLHeader,634621.0,30.0,(640,360),1889)
 
-    fileOut = open("/tmp/testHeader.mkv",'wb')
+    #fileOut = open("/tmp/testHeader.mkv",'wb')
+    fileOut = open("c:/temp/testHeader.mkv",'wb')
     fileOut.write(mkvHeader_EBMLHeader.getvalue())
     fileOut.close()
 

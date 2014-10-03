@@ -476,7 +476,7 @@ if __name__ == '__main__':
     print a
     print type(a.encode())
 
-    print binascii.hexlify(bytearray(a.encode()))
+    print binascii.hexlify((a.encode()))
 
 
     a = io.BytesIO()
@@ -495,6 +495,18 @@ if __name__ == '__main__':
     print f[3]
     print len(bytearray(f))
     print binascii.hexlify(f)
+
+    bufSz = 2
+    foo = ""
+    bar = ""
+    bar = a.read(bufSz)
+    print "bar: ", bar
+    while bar:
+        foo += bar
+        bar = a.read(bufSz)
+        print "bar: ", bar
+
+    print "foo:", foo
 
 #    if len(argv) == 1:
 #        print "Syntax: %s <file.mkv|file.webm>" % argv[0]
