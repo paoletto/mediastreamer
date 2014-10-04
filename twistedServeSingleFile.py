@@ -130,6 +130,8 @@ def fillExampleClusterOffsets():
     return clusterOffsets
 
 
+bStandardBehavior = True
+
 iDataOffset = 1389
 iCuesOffset = 23101218
 iCuesSize   = 1889
@@ -137,24 +139,34 @@ iCuesTolerance = 2048
 
 iSeekHeadOffset = 49
 iOriginalHeaderSize = 1389
-iOutputSize = 4000000000
+iHeaderSize = iOriginalHeaderSize
+iOutputSize = 23103107
+
+
+
+
+
 #iCuesOffset = iOutputSize - iCuesSize + iSeekHeadOffset
 #print "cuesOffset: ", iCuesOffset
+
+
 
 mkvCues   = mkvgenerator.getMKVCues()
 mkvHeader = mkvgenerator.getMKVHeader(  len(mkvCues.getvalue()) )#1889)
 
-
-iCuesSize = len(mkvCues.getvalue())
-iHeaderSize = len(mkvHeader.getvalue())
-iCuesOffset = iOutputSize - iCuesSize + iSeekHeadOffset
+if (not bStandardBehavior):
+    iOutputSize = 4000000000
+    iCuesSize = len(mkvCues.getvalue())
+    iHeaderSize = len(mkvHeader.getvalue())
+    iCuesOffset = iOutputSize - iCuesSize + iSeekHeadOffset
 
 iSegmentHeadSize = iHeaderSize - 49
 iOriginalSegmentHeadSize = iDataOffset - 59
 
 
-iSeekShift =  (iHeaderSize - 49) - (iOriginalHeaderSize - 59);
-iSeekShift = -2
+iSeekShift = 0
+
+
 print "Shift: ",iHeaderSize, iOriginalHeaderSize,iSeekShift
 
 def isHeaderRequest(start):
@@ -213,9 +225,13 @@ class VideoHeader_bytesio():
 
         return None
 
-VideoHeader = VideoHeader_bytesio
-#VideoHeader = VideoHeader_file
-iSeekShift = 0
+
+VideoHeader = VideoHeader_file
+
+if (not bStandardBehavior):
+    iSeekShift =  (iHeaderSize - 49) - (iOriginalHeaderSize - 59);
+    VideoHeader = VideoHeader_bytesio
+    iSeekShift = -2
 
 class VideoData():
     bEOF    = False
@@ -298,8 +314,10 @@ class VideoCues_bytesio():
 
         return None
 
-VideoCues = VideoCues_bytesio
-#VideoCues = VideoCues_file
+
+VideoCues = VideoCues_file
+if (not bStandardBehavior):
+    VideoCues = VideoCues_bytesio
 
 class MyStreamingProducer(object):
     """
@@ -720,7 +738,7 @@ class MyFile(File):
                 'content-range', self._contentRange(offset, size))
         # 3 range request past the cues: request not satisfiable.
         else: #must be past cues
-            if (True):
+            if (not bStandardBehavior):
                 offset = iCuesOffset
                 size = iCuesSize
                 print "\t received a Cues Request,",offset
