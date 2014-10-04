@@ -31,16 +31,131 @@ sCuesPath   = sDataBasedir + sMovieName + "_cuesOnly.mkv"
 #sSeekheadPath   = sDataBasedir + sMovieName + "_seekheadOnly.mkv"
 
 
+
+def fillExampleClusterOffsets():
+    clusterOffsets = list()
+    clusterOffsets.append( 1330 )
+    clusterOffsets.append( 143325 )
+    clusterOffsets.append( 437808 )
+    clusterOffsets.append( 746473 )
+    clusterOffsets.append( 1051747 )
+    clusterOffsets.append( 1332299 )
+    clusterOffsets.append( 1573728 )
+    clusterOffsets.append( 1881678 )
+    clusterOffsets.append( 2119364 )
+    clusterOffsets.append( 2384144 )
+    clusterOffsets.append( 2535540 )
+    clusterOffsets.append( 2900143 )
+    clusterOffsets.append( 3099470 )
+    clusterOffsets.append( 3300387 )
+    clusterOffsets.append( 3490715 )
+    clusterOffsets.append( 3716377 )
+    clusterOffsets.append( 3908308 )
+    clusterOffsets.append( 4143973 )
+    clusterOffsets.append( 4375372 )
+    clusterOffsets.append( 4631876 )
+    clusterOffsets.append( 4823820 )
+    clusterOffsets.append( 5108436 )
+    clusterOffsets.append( 5270121 )
+    clusterOffsets.append( 5474213 )
+    clusterOffsets.append( 5680428 )
+    clusterOffsets.append( 5899730 )
+    clusterOffsets.append( 6112982 )
+    clusterOffsets.append( 6316254 )
+    clusterOffsets.append( 6540625 )
+    clusterOffsets.append( 6715400 )
+    clusterOffsets.append( 6855836 )
+    clusterOffsets.append( 7196234 )
+    clusterOffsets.append( 7384367 )
+    clusterOffsets.append( 7534524 )
+    clusterOffsets.append( 7728357 )
+    clusterOffsets.append( 7886048 )
+    clusterOffsets.append( 8317486 )
+    clusterOffsets.append( 8493652 )
+    clusterOffsets.append( 8675165 )
+    clusterOffsets.append( 8893322 )
+    clusterOffsets.append( 9053778 )
+    clusterOffsets.append( 9300282 )
+    clusterOffsets.append( 9543879 )
+    clusterOffsets.append( 9722535 )
+    clusterOffsets.append( 9935550 )
+    clusterOffsets.append( 10068834 )
+    clusterOffsets.append( 10291716 )
+    clusterOffsets.append( 10565908 )
+    clusterOffsets.append( 10802939 )
+    clusterOffsets.append( 11061065 )
+    clusterOffsets.append( 11445840 )
+    clusterOffsets.append( 11693839 )
+    clusterOffsets.append( 11982826 )
+    clusterOffsets.append( 12452157 )
+    clusterOffsets.append( 12945523 )
+    clusterOffsets.append( 13279196 )
+    clusterOffsets.append( 13443927 )
+    clusterOffsets.append( 13613260 )
+    clusterOffsets.append( 13750660 )
+    clusterOffsets.append( 13932179 )
+    clusterOffsets.append( 14037691 )
+    clusterOffsets.append( 14239807 )
+    clusterOffsets.append( 14403181 )
+    clusterOffsets.append( 14633738 )
+    clusterOffsets.append( 14883763 )
+    clusterOffsets.append( 15256035 )
+    clusterOffsets.append( 15510606 )
+    clusterOffsets.append( 15908582 )
+    clusterOffsets.append( 16134486 )
+    clusterOffsets.append( 16531441 )
+    clusterOffsets.append( 16736449 )
+    clusterOffsets.append( 16940383 )
+    clusterOffsets.append( 17224079 )
+    clusterOffsets.append( 17444973 )
+    clusterOffsets.append( 17671738 )
+    clusterOffsets.append( 17822663 )
+    clusterOffsets.append( 17938615 )
+    clusterOffsets.append( 18110353 )
+    clusterOffsets.append( 18331532 )
+    clusterOffsets.append( 18600780 )
+    clusterOffsets.append( 18852128 )
+    clusterOffsets.append( 19095006 )
+    clusterOffsets.append( 19514294 )
+    clusterOffsets.append( 19991898 )
+    clusterOffsets.append( 20547093 )
+    clusterOffsets.append( 20925730 )
+    clusterOffsets.append( 21158257 )
+    clusterOffsets.append( 21530543 )
+    clusterOffsets.append( 22027354 )
+    clusterOffsets.append( 22543693 )
+    clusterOffsets.append( 22760869 )
+    clusterOffsets.append( 22830753 )
+    clusterOffsets.append( 22959322 )
+    return clusterOffsets
+
+
 iDataOffset = 1389
 iCuesOffset = 23101218
 iCuesSize   = 1889
 iCuesTolerance = 2048
 
 iSeekHeadOffset = 49
+iOriginalHeaderSize = 1389
 iOutputSize = 4000000000
+#iCuesOffset = iOutputSize - iCuesSize + iSeekHeadOffset
+#print "cuesOffset: ", iCuesOffset
+
+mkvCues   = mkvgenerator.getMKVCues()
+mkvHeader = mkvgenerator.getMKVHeader(  len(mkvCues.getvalue()) )#1889)
+
+
+iCuesSize = len(mkvCues.getvalue())
+iHeaderSize = len(mkvHeader.getvalue())
 iCuesOffset = iOutputSize - iCuesSize + iSeekHeadOffset
-print "cuesOffset: ", iCuesOffset
-mkvHeader = mkvgenerator.getMKVHeader()
+
+iSegmentHeadSize = iHeaderSize - 49
+iOriginalSegmentHeadSize = iDataOffset - 59
+
+
+iSeekShift =  (iHeaderSize - 49) - (iOriginalHeaderSize - 59);
+iSeekShift = -2
+print "Shift: ",iHeaderSize, iOriginalHeaderSize,iSeekShift
 
 def isHeaderRequest(start):
     return int(start) is 0
@@ -99,7 +214,9 @@ class VideoHeader_bytesio():
         return None
 
 VideoHeader = VideoHeader_bytesio
-VideoHeader = VideoHeader_file
+#VideoHeader = VideoHeader_file
+iSeekShift = 0
+
 class VideoData():
     bEOF    = False
     sFilename = sDataPath
@@ -134,7 +251,7 @@ class VideoData():
         bEOF = True
         return None
 
-class VideoCues():
+class VideoCues_file():
     bEOF    = False
     sFilename = sCuesPath
     filFile = None  #this is temporary
@@ -161,6 +278,28 @@ class VideoCues():
 
         bEOF = True
         return None
+
+class VideoCues_bytesio():
+    bEOF    = False
+
+    def __init__(self, request):
+        self.request = request
+
+    def isEOF(self):
+        return self.bEOF
+
+    def cleanup(self):
+        pass
+
+    def getData(self):
+        if not self.bEOF:
+            self.bEOF = True
+            return mkvCues.getvalue()
+
+        return None
+
+VideoCues = VideoCues_bytesio
+#VideoCues = VideoCues_file
 
 class MyStreamingProducer(object):
     """
@@ -312,11 +451,13 @@ class MySingleRangeStreamingProducer(MyStreamingProducer):
             self.dataProvider = VideoCues(self.request)
         elif (isDataRequest(self.offset)):
             self.dataProvider = VideoData(self.request)
-            iOffset = self.offset - iDataOffset
+            iOffset = self.offset - iDataOffset + iSeekShift
+            print "Ranged request actual offset:",iOffset
             if (iOffset):
                 self.dataProvider.seek(iOffset)
         else:
             self.dataProvider = None
+            #self.dataProvider = VideoCues(self.request)
 
         self.bytesWritten = 0
         self.request.registerProducer(self, 0)
@@ -557,20 +698,11 @@ class MyFile(File):
 
 
         print "_doSingleRangeRequest",start,end
+
         # Cases
 
-
-
-        # 1) range request to a cluster: we care about the offset, we don't care about the size. we can set something big on the size, it will probably work.
-        if (isDataRequest(start)):
-
-            offset, size  = self._rangeToOffsetAndSize(start, end)
-            print "\t received a Data Request,",start, end, offset,size
-            request.setResponseCode(tw.http.PARTIAL_CONTENT)
-            request.setHeader(
-                'content-range', self._contentRange(offset, size))
-        # 2) range request to the cues ( - up to 2048 bytes) : we return the proper offset, and the cues size
-        elif (isCuesRequest(start)):
+        # 1) range request to the cues ( - up to 2048 bytes) : we return the proper offset, and the cues size
+        if (isCuesRequest(start)):
             offset, size  = self._rangeToOffsetAndSize(start, end)
             offset = iCuesOffset
             size = iCuesSize
@@ -578,15 +710,35 @@ class MyFile(File):
             request.setResponseCode(tw.http.PARTIAL_CONTENT)
             request.setHeader(
                 'content-range', self._contentRange(offset, size))
+        # 2) range request to a cluster: we care about the offset, we don't care about the size. we can set something big on the size, it will probably work.
+        elif (isDataRequest(start)):
+
+            offset, size  = self._rangeToOffsetAndSize(start, end)
+            print "\t received a Data Request,",start, end, offset,size
+            request.setResponseCode(tw.http.PARTIAL_CONTENT)
+            request.setHeader(
+                'content-range', self._contentRange(offset, size))
         # 3 range request past the cues: request not satisfiable.
         else: #must be past cues
-            # This range doesn't overlap with any of this resource, so the
-            # request is unsatisfiable.
-            offset=size=0
-            print "\t received an Unsatisfiable Request,",offset
-            request.setResponseCode(tw.http.REQUESTED_RANGE_NOT_SATISFIABLE)
-            request.setHeader(
-                'content-range', 'bytes */%d' % (self.getFileSize(),))
+            if (True):
+                offset = iCuesOffset
+                size = iCuesSize
+                print "\t received a Cues Request,",offset
+                request.setResponseCode(tw.http.PARTIAL_CONTENT)
+                request.setHeader(
+                    'content-range', self._contentRange(offset, size))
+            else:
+                # This range doesn't overlap with any of this resource, so the
+                # request is unsatisfiable.
+                offset=size=0
+                print "\t received an Unsatisfiable Request,",offset
+                request.setResponseCode(tw.http.REQUESTED_RANGE_NOT_SATISFIABLE)
+                request.setHeader(
+                    'content-range', 'bytes */%d' % (self.getFileSize(),))
+                offset, size  = self._rangeToOffsetAndSize(start, end)
+
+
+
 
         return offset, size
 
@@ -844,6 +996,8 @@ class MyFile(File):
 
 
 
+
+print "cueOffset:",iCuesOffset
 #resource = MyFile('D:/temp/streaming', defaultType='video/octet-stream')
 resource = MyFile('BBBEXAMPLE', defaultType='video/octet-stream')
 factory = MySite(resource)

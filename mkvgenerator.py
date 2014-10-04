@@ -5,6 +5,7 @@ from struct import pack, unpack
 from math import ceil
 import base64
 from io import BytesIO
+import copy
 
 iDataSize = 4000000000
 iSeekHeadSize = 512
@@ -342,6 +343,41 @@ class Float(Element, float):
     def encode(self):
         return pack('>d', self)
 
+class UnsignedInteger(Element, long):
+
+    def __new__(cls, *args, **kwargs):
+        raw = args[0]
+
+        if raw.__class__ in (int, long):
+            print "wrong branch"
+            return super(UnsignedInteger, cls).__new__(cls, raw)
+
+        size = len(raw)
+
+        if size == 3:
+            raw = raw.rjust(4, "\x00")
+        elif size in (5,6,7):
+            raw = raw.rjust(8, "\x00")
+
+        try:
+            number = unpack(">%s" % "xBHIIQQQQ"[size], raw)[0]
+        except IndexError:
+            raise IndexError("Invalid integer of length %d" % size)
+
+        return super(UnsignedInteger, cls).__new__(cls, number)
+
+    def attr(self):
+        return " %d" % self
+
+    def encode(self):
+        binlen = len(bin(self)) - 2
+        size = int(ceil(binlen / 8.0))
+        data = pack(">%s" % "BBHIIQQQQ"[size], self)
+
+        if size in (3, 5, 6, 7):
+            return data.lstrip("\x00")
+        else:
+            return data
 
 # unsigned
 def big_endian_number(number):
@@ -384,6 +420,37 @@ def ebml_element(element_id, data, length=None):
         length = len(data)
     return big_endian_number(element_id) + ebml_encode_number(length) + data
 
+def ebml_decode_uint_trivial(binString):
+    iSz   = len(binString)
+    binString = list(binString)
+    iIdx = (iSz - 1) / 4
+    iSubIdx = (iSz - 1) % 4
+
+    #modify binString[iIdx]
+    s =  list ( ( (bin(ord(binString[iIdx])))[2:]).rjust(8,'0') )
+    s[iSubIdx] = '0'
+    binString[iIdx] = chr(int("".join(s),base=2))
+
+
+    valBinRepr = ""
+    for i in range(iSz):
+        valBinRepr += (bin(ord(binString[i]))[2:]).rjust(8,'0')
+
+    val = int(valBinRepr, base=2)
+    return val
+
+def ebml_fetch_uint_trivial(binString):
+    iSz   = len(binString)
+
+    valBinRepr = ""
+    for i in range(iSz):
+        valBinRepr += (bin(ord(binString[i]))[2:]).rjust(8,'0')
+
+    val = int(valBinRepr, base=2)
+    return val
+
+ebml_decode_uint = ebml_decode_uint_trivial
+ebml_fetch_uint = ebml_fetch_uint_trivial
 def random_uid():
     def rint():
         return int(random.random()*(0x100**4))
@@ -436,7 +503,7 @@ def fillEBMLHeader(mkvHeader_EBMLHeader, fTotalLengthMs, fFPS, vecResolution, iC
             )
 
             mkvHeader_SeekHead.write(mkvHeader_EBMLSeekHeadContent.getvalue())
-            iVoidSize = iSeekHeadSize - len(mkvHeader_EBMLSeekHeadContent.getvalue())
+            iVoidSize = iSeekHeadSize - len(mkvHeader_EBMLSeekHeadContent.getvalue()) - 3 # magic number?
             mkvHeader_EBMLVoidPad.write(ebml_element(EEID["EBMLVoid"], bytearray(iVoidSize)))
             mkvHeader_SeekHead.write(mkvHeader_EBMLVoidPad.getvalue())
 
@@ -507,26 +574,146 @@ def fillEBMLHeader(mkvHeader_EBMLHeader, fTotalLengthMs, fFPS, vecResolution, iC
     mkvHeader_EBMLHeader.write(mkvHeader_EBMLHead.getvalue())
     mkvHeader_EBMLHeader.write(mkvHeader_EBMLSegment.getvalue())
 
-def fillEBMLCues(mkvCues):
-    pass
+#everything in seconds
+def fillEBMLCues(mkvCues,fFPS, fKeyframeInterval,fMovieLength):
+    fInterKeyframeSeconds = fKeyframeInterval / fFPS
+    iMockClusterSize = 60000
+    iNumClusters = int(math.ceil(fMovieLength / fInterKeyframeSeconds))
 
-def getMKVHeader(): #fTotalLengthMs, fFPS, vecResolution, iCuesSize):
+    print "CuePoints:",iNumClusters, "segment length:",fInterKeyframeSeconds
+
+    cuePoints = BytesIO()
+
+    for i in range(iNumClusters):
+        cuePoints.write(
+            ebml_element(EEID["CuePoint"], ""
+                + ebml_element(EEID["CueTime"],  ben(i * int(fInterKeyframeSeconds * 1000.0)) )
+                + ebml_element(EEID["CueTrackPositions"], ""
+                    + ebml_element(EEID["CueTrack"],  ben(1) )
+                    + ebml_element(EEID["CueClusterPosition"], ben(iMockClusterSize * (i+1)))
+                )
+            )
+        )
+
+    mkvCues.write(
+        ebml_element(EEID["Cues"], "" + cuePoints.getvalue() )
+    )
+
+
+def getMKVHeader(iCuesSize): #fTotalLengthMs, fFPS, vecResolution, iCuesSize):
     _header = BytesIO()
-    fillEBMLHeader(_header,634621.0,30.0,(640,360),1889)
+    fillEBMLHeader(_header,634621.0,30.0,(640,360),iCuesSize)
     return _header
+
+def getMKVCues():
+    _cues = BytesIO()
+    fillEBMLCues(_cues,30.0,250,634.621)
+    return _cues
 
 if __name__ == '__main__':
     fillEBMLHeader(mkvHeader_EBMLHeader,634621.0,30.0,(640,360),1889)
 
+    fillEBMLCues(mkvCues,30.0,250,634.621)
+
+    print "Cues length:", len(mkvCues.getvalue())
+
     #fileOut = open("/tmp/testHeader.mkv",'wb')
     fileOut = open("c:/temp/testHeader.mkv",'wb')
     fileOut.write(mkvHeader_EBMLHeader.getvalue())
+    fileOut.write(mkvCues.getvalue())
     fileOut.close()
 
+    sDataBasedir = "BBBEXAMPLE/"
+    #sMovieName = "myH264testMovie"
+    sMovieName = "BBB_ffmpeg_360p_crf30"
+    sMoviePath = sDataBasedir + sMovieName + ".mkv"
+    sHeaderPath = sDataBasedir + sMovieName + "_headerOnly.mkv"
+    sDataPath   = sDataBasedir + sMovieName + "_dataOnly.mkv"
+    sCuesPath   = sDataBasedir + sMovieName + "_cuesOnly.mkv"
+
+    fileCues = open(sCuesPath,'rb')
+    cueData = fileCues.read()
+    fileCues.close()
+
+    iCueBytes = len(cueData)
+    print iCueBytes
+
+    iStart = 12
+    iPointsCount = 0
+    iRemainingBytes = iCueBytes-iStart
+    i = iStart
+    # print 0xBB
+    # print type(cueData)
+    # print type(cueData[i])
+    # print ord(cueData[i])
+    while i  < iCueBytes:
+
+        bCuePoint = cueData[i]
+        if (ord(bCuePoint) == 0xBB):
+            pass
+            #proper tag
+            i+= 1
+            bCueBlockSize =  ebml_decode_uint(cueData[i])
+            i+= 1
+            #print "Size:",bCueBlockSize,"offset:",i
+            cueBlock = copy.copy(cueData[i:i+bCueBlockSize-1])
+            nextBlock =  i+bCueBlockSize
+
+
+            #@CueTime
+            i+=1
+            #@CueTimeSz
+            iSz = ebml_decode_uint(cueData[i])
+
+            i+=1
+            #@CueTimeValue
+            cueTime = ebml_fetch_uint(cueData[i:i+(iSz)])
+
+            i+=iSz
+            #@CueTrack
+            i+=1
+            #@CueTrack Size
+
+            i+=1
+            #@CueTrack ID
+
+            i+=1
+            #@CueTrack ID Size
+
+            i+=1
+            #@CueTrack ID Value
+
+            i+=1
+            #@CueTrack Cluster Pos
+
+            i+=1
+            #@CueTrack Cluster Pos Sz
+
+            iSz = ebml_decode_uint(cueData[i])
+
+            i+=1
+            #@CueTrack Cluster Pos Sz
+            clusterPos = ebml_fetch_uint(cueData[i:i+(iSz)])
+
+
+            #print "cueTime:",cueTime, "offset",clusterPos
+
+            #print "clusterOffsets.append(",clusterPos,")"
+
+
+            iRemainingBytes = iCueBytes - i
+            iPointsCount += 1
+
+            i=nextBlock
+        else:
+            print i
+            #wrong!!!
+            print "Wrong BLOCK!"
+            iRemainingBytes = -1
 
 
 
-
+    print "CuePoints: ", iPointsCount
 
 
 def foo():
