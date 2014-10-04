@@ -99,7 +99,7 @@ class VideoHeader_bytesio():
         return None
 
 VideoHeader = VideoHeader_bytesio
-
+VideoHeader = VideoHeader_file
 class VideoData():
     bEOF    = False
     sFilename = sDataPath
@@ -310,11 +310,13 @@ class MySingleRangeStreamingProducer(MyStreamingProducer):
     def start(self):
         if (isCuesRequest(self.offset)):
             self.dataProvider = VideoCues(self.request)
-        else:
+        elif (isDataRequest(self.offset)):
             self.dataProvider = VideoData(self.request)
             iOffset = self.offset - iDataOffset
             if (iOffset):
                 self.dataProvider.seek(iOffset)
+        else:
+            self.dataProvider = None
 
         self.bytesWritten = 0
         self.request.registerProducer(self, 0)
@@ -323,7 +325,7 @@ class MySingleRangeStreamingProducer(MyStreamingProducer):
     def resumeProducing(self):
         if not self.request:
             return
-        if not self.dataProvider.isEOF():
+        if self.dataProvider and not self.dataProvider.isEOF():
             data = self.dataProvider.getData()
             if data:
                 self.request.write(data)
@@ -625,15 +627,17 @@ class MyFile(File):
             return MyNoRangeStreamingProducer(request)
 
 
+        print "MakeProducer: byterange: ",byteRange
         parsedRanges = self._parseRangeHeader(byteRange)
 
 
         if len(parsedRanges) == 1:
             if int(parsedRanges[0][0]) is 0:
                 self._setContentHeaders(request)
-                request.setResponseCode(tw.http.PARTIAL_CONTENT)
-                request.setHeader(
-                    'content-range', self._contentRange(0, iOutputSize))
+#                request.setResponseCode(tw.http.PARTIAL_CONTENT)
+#                request.setHeader(
+#                    'content-range', self._contentRange(0, iOutputSize))
+                request.setResponseCode(tw.http.OK)
                 return MyNoRangeStreamingProducer(request)
             else:
                 offset, size = self._doSingleRangeRequest(
